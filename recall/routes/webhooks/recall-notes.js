@@ -21,28 +21,33 @@ import {
  *   - (legacy) notes: Recall Notepad summary/action items
  */
 
+/**
+ * Extract recallEventId and recallBotId from webhook payload.
+ * Transcript/recording webhooks use data.bot.id (nested); bot.status_change uses data.bot_id.
+ * Extracting both prevents duplicate artifacts: when IDs are null, every webhook creates a new
+ * artifact and readableId collisions cause "Could not generate unique readableId after 20 retries".
+ */
 function extractRecallIdentifiers(payload) {
   const data = payload?.data || payload;
-  
-  // Bot status change webhooks have a different structure
-  // They typically have: { event: "bot.status_change", data: { bot_id: "...", status: {...} } }
-  const recallBotId = 
-    data?.bot_id || 
-    data?.botId || 
-    payload?.bot_id || 
+
+  // Bot status change: data.bot_id. Transcript/recording events: data.bot.id (nested object).
+  const recallBotId =
+    data?.bot_id ||
+    data?.botId ||
+    data?.bot?.id ||
+    payload?.bot_id ||
     payload?.botId ||
-    // For status change events, the bot_id might be at the top level
     (payload?.event === "bot.status_change" ? payload?.data?.bot_id : null) ||
     null;
-    
+
   const recallEventId =
     data?.calendar_event_id ||
+    data?.recall_event_id ||
     data?.event_id ||
     data?.meeting_id ||
-    // Don't use data.id as it might be the bot_id in status change events
     (data?.id && data?.id !== recallBotId ? data.id : null) ||
     null;
-    
+
   return { recallEventId, recallBotId };
 }
 
