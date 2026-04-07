@@ -84,6 +84,28 @@ export default {
     return response.json();
   },
 
+  /** Plain text from AssemblyAI transcript payload (text, or utterances/words fallbacks). */
+  getTranscriptPlainText(transcript) {
+    const raw = transcript?.text;
+    if (typeof raw === "string" && raw.trim().length > 0) {
+      return raw.trim();
+    }
+    const utterances = transcript?.utterances;
+    if (Array.isArray(utterances) && utterances.length > 0) {
+      const joined = utterances
+        .map((u) => (u && typeof u.text === "string" ? u.text.trim() : ""))
+        .filter(Boolean)
+        .join("\n");
+      if (joined.trim()) return joined.trim();
+    }
+    const words = transcript?.words;
+    if (Array.isArray(words) && words.length > 0) {
+      const w = words.map((x) => (x && typeof x.text === "string" ? x.text : "")).filter(Boolean).join(" ");
+      if (w.trim()) return w.trim();
+    }
+    return "";
+  },
+
   async uploadFromUrl(sourceUrl) {
     if (!ASSEMBLYAI_API_KEY) {
       throw new Error("ASSEMBLYAI_API_KEY is not configured");

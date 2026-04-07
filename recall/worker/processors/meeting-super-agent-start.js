@@ -1,5 +1,109 @@
+import { Op } from "sequelize";
 import db from "../../db.js";
+import { backgroundQueue } from "../../queue.js";
 import AssemblyAI from "../../services/assemblyai/index.js";
+
+const SUPER_AGENT_MIN_TRANSCRIPT_CHARS = 20;
+
+/**
+ * Before submitting a new AssemblyAI job, reuse a transcript for this meeting if the API
+ * already has it completed or still processing (avoids duplicate spend when the app showed error).
+ */
+async function tryReuseExistingAssemblyTranscript({
+  analysis,
+  meetingArtifactId,
+  recordingUrl,
+  config,
+}) {
+  const priors = await db.MeetingSuperAgentAnalysis.findAll({
+    where: {
+      meetingArtifactId,
+      assemblyTranscriptId: { [Op.ne]: null },
+      id: { [Op.ne]: analysis.id },
+    },
+    order: [["createdAt", "DESC"]],
+    limit: 20,
+  });
+
+  const priorByTranscriptId = new Map();
+  for (const p of priors) {
+    const tid = p.assemblyTranscriptId;
+    if (typeof tid === "string" && tid.trim() && !priorByTranscriptId.has(tid)) {
+      priorByTranscriptId.set(tid, p);
+    }
+  }
+
+  const candidateIds = [];
+  const seen = new Set();
+  const pushId = (id) => {
+    if (typeof id !== "string" || !id.trim() || seen.has(id)) return;
+    seen.add(id);
+    candidateIds.push(id);
+  };
+  pushId(analysis.assemblyTranscriptId);
+  for (const p of priors) {
+    pushId(p.assemblyTranscriptId);
+  }
+
+  for (const transcriptId of candidateIds) {
+    let remote;
+    try {
+      remote = await AssemblyAI.getTranscript(transcriptId);
+    } catch (err) {
+      console.warn(
+        `[SuperAgent] Could not fetch existing transcript ${transcriptId}:`,
+        err?.message || err
+      );
+      continue;
+    }
+
+    const priorRow = priorByTranscriptId.get(transcriptId);
+    const assemblyRequest =
+      (priorRow?.assemblyRequest && typeof priorRow.assemblyRequest === "object"
+        ? priorRow.assemblyRequest
+        : null) || { ...config, audio_url: recordingUrl };
+
+    if (remote.status === "queued" || remote.status === "processing") {
+      await analysis.update({
+        status: "processing",
+        assemblyTranscriptId: transcriptId,
+        assemblyRequest,
+        errorMessage: null,
+      });
+      console.log(
+        `[SuperAgent] Reused in-flight AssemblyAI transcript ${transcriptId} for analysis ${analysis.id} (no new submission)`
+      );
+      return true;
+    }
+
+    if (remote.status === "completed") {
+      const text = AssemblyAI.getTranscriptPlainText(remote);
+      if (text.length >= SUPER_AGENT_MIN_TRANSCRIPT_CHARS) {
+        await analysis.update({
+          status: "processing",
+          assemblyTranscriptId: transcriptId,
+          assemblyRequest,
+          errorMessage: null,
+        });
+        await backgroundQueue.add(
+          "meeting.super_agent.complete",
+          { analysisId: analysis.id, transcriptId },
+          {
+            jobId: `super-agent-complete-${analysis.id}`,
+            removeOnComplete: true,
+            removeOnFail: false,
+          }
+        );
+        console.log(
+          `[SuperAgent] Reused completed AssemblyAI transcript ${transcriptId} for analysis ${analysis.id}; queued LLM completion`
+        );
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 function resolvePublicUrl() {
   let publicUrl = process.env.PUBLIC_URL;
@@ -137,6 +241,16 @@ export default async (job) => {
   // #endregion
 
   try {
+    const reused = await tryReuseExistingAssemblyTranscript({
+      analysis,
+      meetingArtifactId,
+      recordingUrl,
+      config,
+    });
+    if (reused) {
+      return;
+    }
+
     const { transcript, requestBody } = await AssemblyAI.submitTranscript({
       audioUrl: recordingUrl,
       requestBody: config,
