@@ -82,13 +82,13 @@
               >
                 Analyse with Super Agent
               </button>
-              <p class="text-xs text-gray-500">Runs Super Agent transcription + LLM Gateway.</p>
+              <p class="text-xs text-gray-500">Runs cloud transcription, then AI summarization.</p>
             </div>
           </div>
 
           <div id="super-agent-progress" class="hidden flex-col gap-2 text-sm text-gray-600">
             <div class="flex flex-wrap items-center gap-3">
-              <div class="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-amber-500 border-t-transparent"></div>
+              <div class="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" aria-hidden="true"></div>
               <span id="super-agent-stage-detail">Super Agent analysis in progress…</span>
               <button
                 type="button"
@@ -98,6 +98,24 @@
               >
                 Retry
               </button>
+            </div>
+            <div class="pl-7 pr-1 space-y-1">
+              <div
+                id="super-agent-progress-track"
+                class="h-2 w-full max-w-xl overflow-hidden rounded-full bg-gray-200"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+                aria-label="Super Agent processing progress"
+              >
+                <div
+                  id="super-agent-progress-fill"
+                  class="h-full rounded-full bg-amber-500 transition-[width] duration-700 ease-out"
+                  style="width: 0%"
+                ></div>
+              </div>
+              <p id="super-agent-progress-hint" class="text-xs text-gray-500"></p>
             </div>
             <p class="text-xs text-gray-500 pl-7">Long recordings can take several minutes. You may leave this page—allow notifications when prompted to get an alert when results are ready.</p>
           </div>

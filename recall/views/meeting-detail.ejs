@@ -897,21 +897,63 @@
     const stage = analysis.processingStage;
     const aai = analysis.assemblyTranscriptStatus;
     if (stage === 'analysis') {
-      return 'Running Super Agent (LLM) on your transcript…';
+      return 'Generating insights from your transcript…';
     }
     if (stage === 'transcription') {
       if (aai === 'queued') {
-        return 'Your recording is queued for transcription at AssemblyAI…';
+        return 'Your recording is queued for transcription…';
       }
       if (aai === 'processing') {
-        return 'AssemblyAI is transcribing your recording…';
+        return 'Transcribing your recording…';
       }
       return 'Transcription in progress…';
     }
     if (aai === 'queued' || aai === 'processing') {
-      return 'AssemblyAI status: ' + aai + ' — still working…';
+      return aai === 'processing'
+        ? 'Transcribing your recording…'
+        : 'Your recording is queued for transcription…';
     }
     return 'Super Agent analysis in progress…';
+  }
+
+  /**
+   * AssemblyAI does not expose percent-complete; we map discrete job + transcript statuses to a bar.
+   */
+  function getSuperAgentProgressPercent(analysis) {
+    if (!analysis) return 0;
+    const st = analysis.status;
+    if (st === 'completed') return 100;
+    if (st === 'error') return 0;
+    if (st === 'queued') return 18;
+    if (st !== 'processing') return 10;
+    const stage = analysis.processingStage;
+    const aai = analysis.assemblyTranscriptStatus;
+    if (stage === 'analysis') return 88;
+    if (stage === 'transcription') {
+      if (aai === 'processing') return 62;
+      if (aai === 'queued') return 38;
+      return 48;
+    }
+    if (aai === 'processing') return 58;
+    if (aai === 'queued') return 35;
+    return 28;
+  }
+
+  function updateSuperAgentProgressBar(analysis) {
+    const track = document.getElementById('super-agent-progress-track');
+    const fill = document.getElementById('super-agent-progress-fill');
+    const hint = document.getElementById('super-agent-progress-hint');
+    if (!track || !fill) return;
+    const pct = getSuperAgentProgressPercent(analysis);
+    const busy = analysis && (analysis.status === 'processing' || analysis.status === 'queued');
+    fill.style.width = busy ? Math.min(100, Math.max(4, pct)) + '%' : '0%';
+    track.setAttribute('aria-valuenow', String(Math.round(pct)));
+    track.setAttribute('aria-busy', busy ? 'true' : 'false');
+    if (hint) {
+      hint.textContent = busy
+        ? 'Approximate progress only — transcription reports stages (queued / processing), not an exact percent.'
+        : '';
+    }
   }
 
   function setSuperAgentStatus(status, message) {
@@ -966,6 +1008,7 @@
 
     if (!analysis) {
       setSuperAgentStatus('idle', 'Not started');
+      updateSuperAgentProgressBar(null);
       if (progress) progress.classList.add('hidden');
       if (results) results.classList.add('hidden');
       if (errorEl) errorEl.classList.add('hidden');
@@ -983,6 +1026,8 @@
     if (stageDetailEl) {
       stageDetailEl.textContent = getSuperAgentStageDetail(analysis);
     }
+
+    updateSuperAgentProgressBar(analysis);
 
     if (progress) {
       progress.classList.toggle('hidden', !(status === 'processing' || status === 'queued'));
