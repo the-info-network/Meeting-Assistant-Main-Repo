@@ -40,14 +40,12 @@ railway variables --json > /tmp/railway-vars.json 2>&1 || {
 # Extract key variables using jq (if available) or node
 if command -v jq &> /dev/null; then
     DATABASE_URL=$(jq -r '.DATABASE_URL // empty' /tmp/railway-vars.json)
-    REDIS_URL=$(jq -r '.REDIS_URL // empty' /tmp/railway-vars.json)
     RECALL_API_KEY=$(jq -r '.RECALL_API_KEY // empty' /tmp/railway-vars.json)
     RECALL_API_HOST=$(jq -r '.RECALL_API_HOST // empty' /tmp/railway-vars.json)
     PUBLIC_URL=$(jq -r '.PUBLIC_URL // empty' /tmp/railway-vars.json)
     SECRET=$(jq -r '.SECRET // empty' /tmp/railway-vars.json)
 elif command -v node &> /dev/null; then
     DATABASE_URL=$(node -e "const vars=require('/tmp/railway-vars.json');console.log(vars.DATABASE_URL||'')")
-    REDIS_URL=$(node -e "const vars=require('/tmp/railway-vars.json');console.log(vars.REDIS_URL||'')")
     RECALL_API_KEY=$(node -e "const vars=require('/tmp/railway-vars.json');console.log(vars.RECALL_API_KEY||'')")
     RECALL_API_HOST=$(node -e "const vars=require('/tmp/railway-vars.json');console.log(vars.RECALL_API_HOST||'')")
     PUBLIC_URL=$(node -e "const vars=require('/tmp/railway-vars.json');console.log(vars.PUBLIC_URL||'')")
@@ -64,7 +62,14 @@ if [ -z "$DATABASE_URL" ]; then
     exit 1
 fi
 
-echo "✅ Found environment variables"
+if ! node "$SCRIPT_DIR/recall/scripts/resolve-railway-redis-local.mjs" /tmp/railway-vars.json > /tmp/railway-redis-local.txt 2>/tmp/railway-redis-local.err; then
+    echo "❌ Redis for localhost:"
+    cat /tmp/railway-redis-local.err
+    exit 1
+fi
+REDIS_URL=$(cat /tmp/railway-redis-local.txt)
+
+echo "✅ Found environment variables (Railway DB + Redis URL usable from this machine)"
 echo ""
 
 # Create .env file
@@ -77,8 +82,8 @@ cat > "$ENV_FILE" << EOF
 # Database (from Railway)
 DATABASE_URL=$DATABASE_URL
 
-# Redis (from Railway - or use local: redis://127.0.0.1:6379)
-REDIS_URL=${REDIS_URL:-redis://127.0.0.1:6379}
+# Redis: public URL for local dev (REDIS_PUBLIC_URL from Railway, not redis.railway.internal)
+REDIS_URL=$REDIS_URL
 
 # Recall API
 RECALL_API_KEY=$RECALL_API_KEY

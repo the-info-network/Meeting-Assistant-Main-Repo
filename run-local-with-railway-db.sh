@@ -33,13 +33,11 @@ pull_from_railway() {
 
   if command -v jq &> /dev/null; then
     DATABASE_URL=$(jq -r '.DATABASE_URL // empty' /tmp/railway-vars.json)
-    REDIS_URL=$(jq -r '.REDIS_URL // empty' /tmp/railway-vars.json)
     RECALL_API_KEY=$(jq -r '.RECALL_API_KEY // empty' /tmp/railway-vars.json)
     RECALL_API_HOST=$(jq -r '.RECALL_API_HOST // empty' /tmp/railway-vars.json)
     SECRET=$(jq -r '.SECRET // empty' /tmp/railway-vars.json)
   else
     DATABASE_URL=$(node -e "const v=require('/tmp/railway-vars.json');console.log(v.DATABASE_URL||'')")
-    REDIS_URL=$(node -e "const v=require('/tmp/railway-vars.json');console.log(v.REDIS_URL||'')")
     RECALL_API_KEY=$(node -e "const v=require('/tmp/railway-vars.json');console.log(v.RECALL_API_KEY||'')")
     RECALL_API_HOST=$(node -e "const v=require('/tmp/railway-vars.json');console.log(v.RECALL_API_HOST||'')")
     SECRET=$(node -e "const v=require('/tmp/railway-vars.json');console.log(v.SECRET||'')")
@@ -50,11 +48,21 @@ pull_from_railway() {
     exit 1
   fi
 
+  # Redis from localhost must use public URL (REDIS_PUBLIC_URL), not redis.railway.internal
+  REDIS_URL=""
+  if node "$SCRIPT_DIR/recall/scripts/resolve-railway-redis-local.mjs" /tmp/railway-vars.json > /tmp/railway-redis-local.txt 2>/tmp/railway-redis-local.err; then
+    REDIS_URL=$(cat /tmp/railway-redis-local.txt)
+  else
+    echo "❌ Could not resolve a Redis URL for localhost:"
+    cat /tmp/railway-redis-local.err
+    exit 1
+  fi
+
   mkdir -p recall
   cat > "$ENV_FILE" << EOF
-# From Railway (run-local-with-railway-db.sh)
+# From Railway (run-local-with-railway-db.sh) — DATABASE_URL + Redis usable from your machine
 DATABASE_URL=$DATABASE_URL
-REDIS_URL=${REDIS_URL:-redis://127.0.0.1:6379}
+REDIS_URL=$REDIS_URL
 RECALL_API_KEY=$RECALL_API_KEY
 RECALL_API_HOST=$RECALL_API_HOST
 PUBLIC_URL=http://localhost:3003
@@ -74,9 +82,9 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-echo "🚀 Starting app on localhost with Railway remote database"
+echo "🚀 Starting app on localhost with Railway DATABASE_URL + Redis (public URL)"
 echo "   Main: http://localhost:3003"
-echo "   To run app + worker together (same REDIS_URL): ./run-local-with-worker.sh"
+echo "   To run app + worker together (same queue): ./run-local-with-worker.sh"
 echo "   Or in another terminal: cd recall && npm run dev:worker"
 echo ""
 cd recall

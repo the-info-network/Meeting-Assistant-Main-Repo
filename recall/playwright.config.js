@@ -1,7 +1,15 @@
 import { defineConfig, devices } from '@playwright/test';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * @see https://playwright.dev/docs/test-configuration
+ *
+ * Default: E2E webServer uses Railway-injected DATABASE_URL + Redis (see scripts/playwright-dev-server.sh).
+ * Requires: `railway link`, and Redis public URL (REDIS_PUBLIC_URL) on the linked service for localhost.
+ * Opt out: PLAYWRIGHT_USE_RAILWAY_BACKEND=0 npx playwright test  (uses npm run dev + recall/.env only)
  */
 export default defineConfig({
   testDir: './tests',
@@ -67,7 +75,8 @@ export default defineConfig({
 
   /* Run your local dev server before starting the tests */
   webServer: {
-    command: 'npm run dev',
+    command: 'bash scripts/playwright-dev-server.sh',
+    cwd: __dirname,
     url: process.env.TEST_BASE_URL || 'http://localhost:3003',
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000, // 2 minutes

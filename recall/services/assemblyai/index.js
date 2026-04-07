@@ -2,7 +2,16 @@ import fetch from "node-fetch";
 
 const ASSEMBLYAI_API_KEY = process.env.ASSEMBLYAI_API_KEY;
 const ASSEMBLYAI_API_URL = process.env.ASSEMBLYAI_API_URL || "https://api.assemblyai.com";
-const ASSEMBLYAI_LLM_GATEWAY_URL = "https://llm-gateway.assemblyai.com/v1";
+const ASSEMBLYAI_LLM_GATEWAY_URL =
+  process.env.ASSEMBLYAI_LLM_GATEWAY_URL || "https://llm-gateway.assemblyai.com/v1";
+/** Super Agent summary step; override if a model is deprecated or your account uses EU gateway docs. */
+const ASSEMBLYAI_SUPER_AGENT_MODEL =
+  process.env.ASSEMBLYAI_SUPER_AGENT_MODEL || "claude-sonnet-4-5-20250929";
+/** Max chars sent to LLM for Super Agent (avoid context overflow / truncated JSON). */
+const SUPER_AGENT_TRANSCRIPT_MAX_CHARS = Number.parseInt(
+  process.env.ASSEMBLYAI_SUPER_AGENT_MAX_TRANSCRIPT_CHARS || "200000",
+  10
+);
 
 async function fetchWithRetry(url, options = {}, retryOptions = {}) {
   const {
@@ -260,6 +269,19 @@ Please analyze this meeting transcript and provide a comprehensive summary with 
       throw new Error("ASSEMBLYAI_API_KEY is not configured");
     }
 
+    let textForLlm = typeof transcriptText === "string" ? transcriptText : "";
+    const maxChars = Number.isFinite(SUPER_AGENT_TRANSCRIPT_MAX_CHARS)
+      ? SUPER_AGENT_TRANSCRIPT_MAX_CHARS
+      : 200000;
+    if (textForLlm.length > maxChars) {
+      console.warn(
+        `[ASSEMBLYAI] Super Agent transcript truncated for LLM: ${textForLlm.length} -> ${maxChars} chars`
+      );
+      textForLlm =
+        textForLlm.slice(0, maxChars) +
+        "\n\n[Transcript truncated for analysis. Earlier portion omitted.]";
+    }
+
     const title = metadata?.title || "Meeting";
     const participants = metadata?.participants || [];
     const participantNames = Array.isArray(participants)
@@ -279,23 +301,24 @@ Please analyze this meeting transcript and provide a comprehensive summary with 
 
     const systemPrompt = `You are an expert meeting analyst. Return valid JSON only.\n\nReturn fields:\n1. detailed_summary: A Fellow-style executive summary + detailed narrative.\n2. action_items: Array of { task, assignee, due_date }.\n3. decisions: Array of { decision, context }.\n4. highlights: Array of { title, summary, speaker, timestamp_seconds, category, impact }.\n5. key_insights: Array of { insight, importance }.\n6. outcome: One of productive|inconclusive|needs_followup|blocked|informational.`;
 
-    const userMessage = `Meeting Details:\nTitle: ${title}\nParticipants: ${participantNames || "Not specified"}\n\nChapter Outline:\n${chapterOutline}\n\nTranscript:\n${transcriptText}\n\nProvide a comprehensive response in JSON that is actionable and detailed.`;
+    const userMessage = `Meeting Details:\nTitle: ${title}\nParticipants: ${participantNames || "Not specified"}\n\nChapter Outline:\n${chapterOutline}\n\nTranscript:\n${textForLlm}\n\nProvide a comprehensive response in JSON that is actionable and detailed.`;
 
-    const response = await fetchWithRetry(`${ASSEMBLYAI_LLM_GATEWAY_URL}/chat/completions`, {
+    const llmUrl = `${ASSEMBLYAI_LLM_GATEWAY_URL.replace(/\/$/, "")}/chat/completions`;
+    const response = await fetchWithRetry(llmUrl, {
       method: "POST",
       headers: {
         authorization: ASSEMBLYAI_API_KEY,
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5-20250929",
+        model: ASSEMBLYAI_SUPER_AGENT_MODEL,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
         ],
         response_format: { type: "json_object" },
         temperature: 0.2,
-        max_tokens: 4500,
+        max_tokens: 8192,
       }),
     }, { retries: 2, backoffMs: 1500 });
 

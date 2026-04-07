@@ -15,7 +15,16 @@ fi
 
 # Load env (REDIS_URL, DATABASE_URL, etc.) for this shell and child processes
 export $(grep -v '^#' "$ENV_FILE" | xargs)
-export REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379}"
+if [[ -z "$REDIS_URL" ]]; then
+  echo "❌ REDIS_URL missing in $ENV_FILE. Run: ./run-local-with-railway-db.sh --pull"
+  echo "   (Uses Railway Postgres + Redis public URL — not local redis://127.0.0.1)"
+  exit 1
+fi
+if [[ "$REDIS_URL" == *"railway.internal"* ]]; then
+  echo "❌ REDIS_URL points at redis.railway.internal (only works inside Railway)."
+  echo "   Re-run: ./run-local-with-railway-db.sh --pull  (expects REDIS_PUBLIC_URL on the project)"
+  exit 1
+fi
 export NODE_ENV="${NODE_ENV:-development}"
 
 WORKER_PID=""
