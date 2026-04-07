@@ -69,6 +69,8 @@ async function tryReuseExistingAssemblyTranscript({
         assemblyTranscriptId: transcriptId,
         assemblyRequest,
         errorMessage: null,
+        processingStage: "transcription",
+        assemblyTranscriptStatus: remote.status,
       });
       console.log(
         `[SuperAgent] Reused in-flight AssemblyAI transcript ${transcriptId} for analysis ${analysis.id} (no new submission)`
@@ -84,6 +86,8 @@ async function tryReuseExistingAssemblyTranscript({
           assemblyTranscriptId: transcriptId,
           assemblyRequest,
           errorMessage: null,
+          processingStage: "analysis",
+          assemblyTranscriptStatus: "completed",
         });
         await backgroundQueue.add(
           "meeting.super_agent.complete",
@@ -262,6 +266,8 @@ export default async (job) => {
       assemblyTranscriptId: transcript.id,
       assemblyRequest: requestBody,
       errorMessage: null,
+      processingStage: "transcription",
+      assemblyTranscriptStatus: transcript.status || "queued",
     });
 
     // #region agent log - H12f: Debug AssemblyAI submission success

@@ -31,6 +31,16 @@ export default (sequelize) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      /** App-defined phase: queued, transcription, analysis */
+      processingStage: {
+        type: DataTypes.STRING(64),
+        allowNull: true,
+      },
+      /** Last seen AssemblyAI transcript.status while waiting (queued, processing, completed, error) */
+      assemblyTranscriptStatus: {
+        type: DataTypes.STRING(32),
+        allowNull: true,
+      },
       assemblyRequest: {
         type: DataTypes.JSON,
         allowNull: true,

@@ -1,5 +1,9 @@
 import db from "../../db.js";
-import { isSuperAgentEnabled, isUserPremium } from "../../utils/super-agent.js";
+import {
+  effectiveSuperAgentChapters,
+  isSuperAgentEnabled,
+  isUserPremium,
+} from "../../utils/super-agent.js";
 import { Op } from "sequelize";
 
 // Generic/placeholder titles we should ignore when deriving a display name
@@ -522,12 +526,14 @@ export default async (req, res) => {
           actionItems: superAgentAnalysis.actionItems || [],
           decisions: superAgentAnalysis.decisions || [],
           highlights: superAgentAnalysis.highlights || [],
-          chapters: superAgentAnalysis.chapters || [],
+          chapters: effectiveSuperAgentChapters(superAgentAnalysis),
           sentiment: superAgentAnalysis.sentiment || null,
           topics: superAgentAnalysis.topics || [],
           contentSafety: superAgentAnalysis.contentSafety || null,
           translation: superAgentAnalysis.translation || null,
           errorMessage: superAgentAnalysis.errorMessage || null,
+          processingStage: superAgentAnalysis.processingStage || null,
+          assemblyTranscriptStatus: superAgentAnalysis.assemblyTranscriptStatus || null,
           createdAt: superAgentAnalysis.createdAt,
           updatedAt: superAgentAnalysis.updatedAt,
         }

@@ -201,6 +201,7 @@ async function queueSuperAgent(meetingArtifactId, userId) {
     userId,
     status: "queued",
     requestedFeatures: {},
+    processingStage: "queued",
   });
 
   await backgroundQueue.add(

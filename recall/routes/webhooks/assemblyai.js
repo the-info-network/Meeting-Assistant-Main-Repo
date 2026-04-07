@@ -56,6 +56,8 @@ export default async (req, res) => {
       await analysis.update({
         status: "error",
         errorMessage: req.body?.error || "AssemblyAI transcription failed",
+        processingStage: null,
+        assemblyTranscriptStatus: "error",
       });
       return res.sendStatus(200);
     }
@@ -63,6 +65,12 @@ export default async (req, res) => {
     if (status !== "completed") {
       return res.sendStatus(200);
     }
+
+    await analysis.update({
+      processingStage: "analysis",
+      assemblyTranscriptStatus: "completed",
+      errorMessage: null,
+    });
 
     await backgroundQueue.add(
       "meeting.super_agent.complete",

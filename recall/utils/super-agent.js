@@ -28,3 +28,18 @@ export function isUserPremium(user) {
   if (!user || typeof user.isPremiumOrTrial !== "function") return false;
   return user.isPremiumOrTrial();
 }
+
+/**
+ * Chapters to show in the UI: prefer persisted `chapters`, else AssemblyAI payload on `assemblyResult`
+ * (transcription can succeed while the LLM step fails, leaving chapters only on assemblyResult).
+ *
+ * @param {object|null|undefined} row - MeetingSuperAgentAnalysis Sequelize instance or plain object
+ * @returns {Array}
+ */
+export function effectiveSuperAgentChapters(row) {
+  if (!row) return [];
+  if (Array.isArray(row.chapters) && row.chapters.length > 0) return row.chapters;
+  const ar = row.assemblyResult;
+  if (ar && Array.isArray(ar.chapters) && ar.chapters.length > 0) return ar.chapters;
+  return [];
+}

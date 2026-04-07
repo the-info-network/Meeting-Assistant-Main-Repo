@@ -866,6 +866,54 @@
     };
   }
 
+  function getSuperAgentStageLabel(analysis) {
+    if (!analysis) return 'Not started';
+    const st = analysis.status;
+    if (st === 'completed') return 'Completed';
+    if (st === 'error') return 'Error';
+    if (st === 'queued') return 'Queued';
+    if (st === 'processing') {
+      const stage = analysis.processingStage;
+      const aai = analysis.assemblyTranscriptStatus;
+      if (stage === 'analysis') return 'Generating insights';
+      if (stage === 'transcription') {
+        if (aai === 'queued') return 'Transcription queued';
+        if (aai === 'processing') return 'Transcribing audio';
+        return 'Transcribing';
+      }
+      if (aai === 'queued' || aai === 'processing') return 'Transcribing';
+      return 'Processing';
+    }
+    return st || 'Unknown';
+  }
+
+  function getSuperAgentStageDetail(analysis) {
+    if (!analysis || (analysis.status !== 'processing' && analysis.status !== 'queued')) {
+      return 'Super Agent analysis in progress…';
+    }
+    if (analysis.status === 'queued') {
+      return 'Waiting to start…';
+    }
+    const stage = analysis.processingStage;
+    const aai = analysis.assemblyTranscriptStatus;
+    if (stage === 'analysis') {
+      return 'Running Super Agent (LLM) on your transcript…';
+    }
+    if (stage === 'transcription') {
+      if (aai === 'queued') {
+        return 'Your recording is queued for transcription at AssemblyAI…';
+      }
+      if (aai === 'processing') {
+        return 'AssemblyAI is transcribing your recording…';
+      }
+      return 'Transcription in progress…';
+    }
+    if (aai === 'queued' || aai === 'processing') {
+      return 'AssemblyAI status: ' + aai + ' — still working…';
+    }
+    return 'Super Agent analysis in progress…';
+  }
+
   function setSuperAgentStatus(status, message) {
     const pill = document.getElementById('super-agent-status-pill');
     if (!pill) return;
@@ -929,7 +977,12 @@
     }
 
     const status = analysis.status || 'processing';
-    setSuperAgentStatus(status, status === 'queued' ? 'Queued' : status);
+    setSuperAgentStatus(status, getSuperAgentStageLabel(analysis));
+
+    const stageDetailEl = document.getElementById('super-agent-stage-detail');
+    if (stageDetailEl) {
+      stageDetailEl.textContent = getSuperAgentStageDetail(analysis);
+    }
 
     if (progress) {
       progress.classList.toggle('hidden', !(status === 'processing' || status === 'queued'));
@@ -1046,9 +1099,9 @@
     }
   }
 
-  // Track how long analysis has been processing
-  let processingStartTime = null;
-  const MAX_PROCESSING_TIME_MS = 120000; // 2 minutes
+  // Track how long the LLM ("analysis") stage has been running — do not auto-retry during transcription
+  let analysisStageStartTime = null;
+  const MAX_ANALYSIS_STAGE_MS = 5 * 60 * 1000; // 5 minutes for stuck LLM only
   let lastSuperAgentStatus = null; // Track last status to detect completion
   let notificationPermissionRequested = false; // Track if we've asked for permission
   const ENABLE_LOCAL_TELEMETRY = <%- (typeof enableLocalTelemetry !== 'undefined' && enableLocalTelemetry) ? 'true' : 'false' %>;
@@ -1080,23 +1133,39 @@
           
           console.log('[Super Agent] Analysis completed - showing notification');
           showSuperAgentCompletionNotification();
+          if (!document.hidden) {
+            showNotification('Super Agent analysis complete!', 'success');
+          }
         }
         
         lastSuperAgentStatus = analysis.status;
         renderSuperAgentAnalysis(analysis);
         
         if (analysis.status === 'processing' || analysis.status === 'queued') {
-          // Track how long we've been processing
-          if (!processingStartTime) {
-            processingStartTime = Date.now();
+          const inAnalysisStage =
+            analysis.status === 'processing' && analysis.processingStage === 'analysis';
+          if (inAnalysisStage) {
+            if (!analysisStageStartTime) {
+              analysisStageStartTime = Date.now();
+            }
+          } else {
+            analysisStageStartTime = null;
           }
-          
-          // Auto-retry if stuck in processing for too long
-          const processingDuration = Date.now() - processingStartTime;
-          if (analysis.status === 'processing' && processingDuration > MAX_PROCESSING_TIME_MS) {
-            console.log('[Super Agent] Analysis stuck in processing for', Math.round(processingDuration / 1000), 'seconds - auto-retrying');
-            processingStartTime = null; // Reset timer
-            await retrySuperAgentAnalysis(true); // true = isAutoRetry
+
+          const analysisStageDuration = analysisStageStartTime
+            ? Date.now() - analysisStageStartTime
+            : 0;
+          if (
+            inAnalysisStage &&
+            analysisStageDuration > MAX_ANALYSIS_STAGE_MS
+          ) {
+            console.log(
+              '[Super Agent] LLM stage stuck for',
+              Math.round(analysisStageDuration / 1000),
+              'seconds - auto-retrying complete job'
+            );
+            analysisStageStartTime = null;
+            await retrySuperAgentAnalysis(true);
           } else {
             // #region agent log
             if (ENABLE_LOCAL_TELEMETRY) { fetch('http://127.0.0.1:7248/ingest/9df62f0f-78c1-44fb-821f-c3c7b9f764cc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'meeting-detail.ejs:1095',message:'Scheduling next poll',data:{status:analysis.status,isHidden:document.hidden},timestamp:Date.now(),hypothesisId:'H4'})}).catch(()=>{}); }
@@ -1107,8 +1176,7 @@
           // #region agent log
           if (ENABLE_LOCAL_TELEMETRY) { fetch('http://127.0.0.1:7248/ingest/9df62f0f-78c1-44fb-821f-c3c7b9f764cc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'meeting-detail.ejs:1101',message:'Analysis finished, stopping poll',data:{status:analysis.status},timestamp:Date.now(),hypothesisId:'H5'})}).catch(()=>{}); }
           // #endregion
-          // Reset timer when not processing
-          processingStartTime = null;
+          analysisStageStartTime = null;
         }
       }
     }, 4000);

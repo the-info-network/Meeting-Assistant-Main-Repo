@@ -1,7 +1,7 @@
 import db from "../../db.js";
 import { backgroundQueue } from "../../queue.js";
 import { findAccessibleArtifact } from "../../services/meetings/access.js";
-import { isSuperAgentEnabled } from "../../utils/super-agent.js";
+import { effectiveSuperAgentChapters, isSuperAgentEnabled } from "../../utils/super-agent.js";
 import Recall from "../../services/recall/index.js";
 import { Op } from "sequelize";
 
@@ -242,6 +242,8 @@ export async function getMeetingMetadata(req, res) {
       hasTranscript: transcriptCount > 0,
       transcriptChunkCount: transcriptCount,
       superAgentStatus: superAgentAnalysis?.status || null,
+      superAgentProcessingStage: superAgentAnalysis?.processingStage || null,
+      superAgentAssemblyTranscriptStatus: superAgentAnalysis?.assemblyTranscriptStatus || null,
       superAgentEnabled: isSuperAgentEnabled(calendarForSuperAgent),
       
       // Ownership
@@ -728,6 +730,7 @@ export async function triggerSuperAgentAnalysis(req, res) {
       userId,
       status: "queued",
       requestedFeatures,
+      processingStage: "queued",
     });
 
     await backgroundQueue.add(
@@ -806,12 +809,14 @@ export async function getSuperAgentAnalysis(req, res) {
             actionItems: analysis.actionItems || [],
             decisions: analysis.decisions || [],
             highlights: analysis.highlights || [],
-            chapters: analysis.chapters || [],
+            chapters: effectiveSuperAgentChapters(analysis),
             sentiment: analysis.sentiment || null,
             topics: analysis.topics || [],
             contentSafety: analysis.contentSafety || null,
             translation: analysis.translation || null,
             errorMessage: analysis.errorMessage || null,
+            processingStage: analysis.processingStage || null,
+            assemblyTranscriptStatus: analysis.assemblyTranscriptStatus || null,
             createdAt: analysis.createdAt,
             updatedAt: analysis.updatedAt,
           }
@@ -838,12 +843,14 @@ export async function getSuperAgentAnalysis(req, res) {
         actionItems: analysis.actionItems || [],
         decisions: analysis.decisions || [],
         highlights: analysis.highlights || [],
-        chapters: analysis.chapters || [],
+        chapters: effectiveSuperAgentChapters(analysis),
         sentiment: analysis.sentiment || null,
         topics: analysis.topics || [],
         contentSafety: analysis.contentSafety || null,
         translation: analysis.translation || null,
         errorMessage: analysis.errorMessage || null,
+        processingStage: analysis.processingStage || null,
+        assemblyTranscriptStatus: analysis.assemblyTranscriptStatus || null,
         createdAt: analysis.createdAt,
         updatedAt: analysis.updatedAt,
       },

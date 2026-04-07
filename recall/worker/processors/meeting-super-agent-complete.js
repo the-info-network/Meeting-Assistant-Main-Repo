@@ -1,5 +1,9 @@
 import db from "../../db.js";
+import { backgroundQueue } from "../../queue.js";
 import AssemblyAI from "../../services/assemblyai/index.js";
+
+/** Poll AssemblyAI while status is queued/processing before treating it as a hard failure. */
+const MAX_TRANSCRIPT_POLL_ATTEMPTS = 240;
 
 function tokenize(text) {
   if (!text || typeof text !== "string") return [];
@@ -55,7 +59,7 @@ function attachTimestamps(items, utterances) {
 }
 
 export default async (job) => {
-  const { analysisId, transcriptId } = job.data;
+  const { analysisId, transcriptId, transcriptPollAttempt = 0 } = job.data;
 
   // #region agent log - H15: Debug Super Agent complete processor start
   fetch('http://127.0.0.1:7248/ingest/9df62f0f-78c1-44fb-821f-c3c7b9f764cc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'meeting-super-agent-complete.js',message:'super_agent_complete_start',data:{analysisId,transcriptId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H15'})}).catch(()=>{});
@@ -78,6 +82,9 @@ export default async (job) => {
     return;
   }
 
+  /** Set before LLM step so catch can persist AssemblyAI chapters if the LLM fails. */
+  let transcriptSnapshot = null;
+
   try {
     const transcript = await AssemblyAI.getTranscript(
       analysis.assemblyTranscriptId || transcriptId
@@ -88,21 +95,74 @@ export default async (job) => {
         status: "error",
         errorMessage: transcript.error || "AssemblyAI transcription failed",
         assemblyResult: transcript,
+        processingStage: null,
+        assemblyTranscriptStatus: "error",
       });
+      return;
+    }
+
+    if (transcript.status === "queued" || transcript.status === "processing") {
+      const nextAttempt = transcriptPollAttempt + 1;
+      if (nextAttempt > MAX_TRANSCRIPT_POLL_ATTEMPTS) {
+        await analysis.update({
+          status: "error",
+          errorMessage:
+            "Transcription is taking longer than expected. Wait a few minutes and use Retry, or check the recording in AssemblyAI.",
+          processingStage: null,
+          assemblyTranscriptStatus: transcript.status,
+        });
+        console.warn(
+          `[SuperAgent] Transcript ${analysis.assemblyTranscriptId || transcriptId} still ${transcript.status} after ${MAX_TRANSCRIPT_POLL_ATTEMPTS} polls`
+        );
+        return;
+      }
+
+      await analysis.update({
+        status: "processing",
+        processingStage: "transcription",
+        assemblyTranscriptStatus: transcript.status,
+        errorMessage: null,
+      });
+
+      const delayMs = Math.min(20000, 3000 + nextAttempt * 450);
+      await backgroundQueue.add(
+        "meeting.super_agent.complete",
+        {
+          analysisId: analysis.id,
+          transcriptId: analysis.assemblyTranscriptId || transcriptId,
+          transcriptPollAttempt: nextAttempt,
+        },
+        {
+          delay: delayMs,
+          removeOnComplete: true,
+          removeOnFail: false,
+        }
+      );
+      console.log(
+        `[SuperAgent] Transcript ${analysis.assemblyTranscriptId || transcriptId} status=${transcript.status}; poll ${nextAttempt}/${MAX_TRANSCRIPT_POLL_ATTEMPTS} in ${delayMs}ms`
+      );
       return;
     }
 
     if (transcript.status !== "completed") {
       await analysis.update({
         status: "error",
-        errorMessage: `AssemblyAI transcript not ready (status: ${transcript.status}). Try retry or check recording URL access.`,
+        errorMessage: `Unexpected AssemblyAI transcript status: ${transcript.status}. Try Retry or contact support.`,
         assemblyResult: transcript,
+        processingStage: null,
+        assemblyTranscriptStatus: transcript.status,
       });
       console.warn(
         `[SuperAgent] Transcript ${analysis.assemblyTranscriptId || transcriptId} expected completed, got ${transcript.status}`
       );
       return;
     }
+
+    await analysis.update({
+      processingStage: "analysis",
+      assemblyTranscriptStatus: "completed",
+      errorMessage: null,
+    });
 
     const transcriptText = AssemblyAI.getTranscriptPlainText(transcript);
     if (!transcriptText || transcriptText.length < 20) {
@@ -111,12 +171,15 @@ export default async (job) => {
         errorMessage:
           "AssemblyAI returned no usable transcript text. The recording URL may be expired, blocked, silent, or unreadable by AssemblyAI.",
         assemblyResult: transcript,
+        processingStage: null,
       });
       console.warn(
         `[SuperAgent] Empty or too-short transcript for analysis ${analysis.id} (len=${transcriptText?.length || 0})`
       );
       return;
     }
+
+    transcriptSnapshot = transcript;
 
     const artifact = await db.MeetingArtifact.findByPk(analysis.meetingArtifactId, {
       include: [
@@ -169,6 +232,8 @@ export default async (job) => {
       translation: transcript.translated_texts || null,
       piiRedactionApplied: !!transcript.redact_pii,
       errorMessage: null,
+      processingStage: null,
+      assemblyTranscriptStatus: null,
     });
 
     // #region agent log - H15b: Debug Super Agent complete success
@@ -181,9 +246,20 @@ export default async (job) => {
     // #region agent log - H15c: Debug Super Agent complete error
     fetch('http://127.0.0.1:7248/ingest/9df62f0f-78c1-44fb-821f-c3c7b9f764cc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'meeting-super-agent-complete.js',message:'super_agent_complete_error',data:{analysisId:analysis?.id,error:error?.message,stack:error?.stack?.substring(0,500)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H15c'})}).catch(()=>{});
     // #endregion
-    await analysis.update({
+    const errorPatch = {
       status: "error",
       errorMessage: error?.message || "Failed to complete Super Agent analysis",
-    });
+      processingStage: null,
+    };
+    if (
+      transcriptSnapshot &&
+      transcriptSnapshot.status === "completed" &&
+      Array.isArray(transcriptSnapshot.chapters) &&
+      transcriptSnapshot.chapters.length > 0
+    ) {
+      errorPatch.chapters = transcriptSnapshot.chapters;
+      errorPatch.assemblyResult = transcriptSnapshot;
+    }
+    await analysis.update(errorPatch);
   }
 };

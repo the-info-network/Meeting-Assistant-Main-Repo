@@ -20,7 +20,8 @@
     "disconnect-v1-bot": "node disconnect-v1-bot.js",
     "stop-v1-scheduler": "node stop-v1-scheduler.js",
     "check-v2-bot-scheduling": "node check-v2-bot-scheduling.js",
-    "smoke:assemblyai": "node scripts/smoke-assemblyai.mjs"
+    "smoke:assemblyai": "node scripts/smoke-assemblyai.mjs",
+    "smoke:super-agent": "node scripts/smoke-super-agent.mjs"
   },
   "author": "Dhruv Parmar",
   "license": "ISC",
