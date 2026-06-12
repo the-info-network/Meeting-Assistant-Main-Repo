@@ -56,6 +56,7 @@ import meetingIngestExternal from "./processors/meeting-ingest-external.js";
 import recordingArchive from "./processors/recording-archive.js";
 import meetingSuperAgentStart from "./processors/meeting-super-agent-start.js";
 import meetingSuperAgentComplete from "./processors/meeting-super-agent-complete.js";
+import periodicEnrichmentRecovery from "./processors/periodic-enrichment-recovery.js";
 
 dotenv.config();
 consoleStamp(console);
@@ -135,6 +136,7 @@ const processors = [
   { name: "recording.archive", concurrency: 1, handler: recordingArchive },
   { name: "meeting.super_agent.start", concurrency: 2, handler: meetingSuperAgentStart },
   { name: "meeting.super_agent.complete", concurrency: 2, handler: meetingSuperAgentComplete },
+  { name: "periodic.enrichment.recovery", concurrency: 1, handler: periodicEnrichmentRecovery },
 ];
 
 processors.forEach(({ name, concurrency, handler }) => {
@@ -238,6 +240,31 @@ async function schedulePeriodicSync() {
     // Run initial connection check immediately (don't wait 15 minutes)
     await backgroundQueue.add("check.calendar.connections", {}, { jobId: "check-calendar-connections-initial" });
     console.log("🔄 Triggered initial connection check");
+
+    // Schedule periodic enrichment recovery (every 10 minutes)
+    // Recovers meetings stuck at status:done with no MeetingSummary due to missed webhooks
+    for (const job of existingJobs) {
+      if (job.name === "periodic.enrichment.recovery") {
+        await backgroundQueue.removeRepeatableByKey(job.key);
+        console.log(`🗑️  Removed existing enrichment recovery job: ${job.key}`);
+      }
+    }
+
+    await backgroundQueue.add(
+      "periodic.enrichment.recovery",
+      {},
+      {
+        repeat: {
+          every: 10 * 60 * 1000, // 10 minutes in milliseconds
+        },
+        jobId: "periodic-enrichment-recovery",
+      }
+    );
+
+    console.log("⏰ Scheduled periodic enrichment recovery (every 10 minutes)");
+    telemetryLog("INFO", "Enrichment recovery scheduled", {
+      intervalMinutes: 10,
+    });
   } catch (error) {
     console.error("❌ Failed to schedule periodic sync:", error);
     telemetryLog("ERROR", "Failed to schedule periodic sync", {
