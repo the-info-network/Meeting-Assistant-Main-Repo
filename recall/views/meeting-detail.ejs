@@ -1122,6 +1122,44 @@
               }).join('')
             : '<li class="text-xs text-gray-500">No highlights available.</li>';
         }
+
+        // Update the tab content divs so Chapters/Highlights/Actions tabs
+        // reflect the completed analysis (they are server-rendered and stale on initial load).
+        const chaptersTab = document.getElementById('content-chapters');
+        if (chaptersTab) {
+          const ch = Array.isArray(analysis.chapters) ? analysis.chapters : [];
+          chaptersTab.innerHTML = ch.length
+            ? ch.map((chapter) => {
+                const start = typeof chapter.start === 'number' ? Math.floor(chapter.start / 1000) : null;
+                const end = typeof chapter.end === 'number' ? Math.floor(chapter.end / 1000) : null;
+                const timeLabel = start !== null ? formatSecondsLabel(start) : null;
+                const endLabel = end !== null ? formatSecondsLabel(end) : null;
+                return '<div class="rounded-md border border-gray-200 p-3"><div class="flex items-center justify-between"><div class="font-medium text-gray-900">' + (chapter.headline || chapter.gist || 'Chapter') + '</div>' + (timeLabel ? '<div class="text-xs text-gray-500">' + timeLabel + (endLabel ? '-' + endLabel : '') + '</div>' : '') + '</div><p class="mt-1 text-xs text-gray-600">' + (chapter.summary || '') + '</p></div>';
+              }).join('')
+            : '<div class="text-center py-8"><h3 class="mt-2 text-sm font-semibold text-gray-900">No chapters available</h3><p class="mt-1 text-sm text-gray-500">No chapters available for this meeting.</p></div>';
+        }
+        const highlightsTab = document.getElementById('content-highlights');
+        if (highlightsTab) {
+          const h = Array.isArray(analysis.highlights) ? analysis.highlights : [];
+          highlightsTab.innerHTML = h.length
+            ? '<ul class="space-y-2">' + h.map((item) => {
+                const title = item.title || 'Highlight';
+                const text = item.content || item.summary || item.text || item.description || '';
+                return '<li class="rounded-md border border-gray-200 p-3"><div class="text-sm font-semibold text-gray-900">' + title + '</div><p class="mt-1 text-xs text-gray-600">' + text + '</p></li>';
+              }).join('') + '</ul>'
+            : '<div class="text-center py-8"><h3 class="mt-2 text-sm font-semibold text-gray-900">No highlights available</h3><p class="mt-1 text-sm text-gray-500">No highlights found for this meeting.</p></div>';
+        }
+        const actionsTab = document.getElementById('content-actions');
+        if (actionsTab) {
+          const a = Array.isArray(analysis.actionItems) ? analysis.actionItems : [];
+          actionsTab.innerHTML = a.length
+            ? '<ul class="space-y-2">' + a.map((item) => {
+                const text = item.task || item.action || item.text || item.description || JSON.stringify(item);
+                const assignee = item.assignee ? ' — ' + item.assignee : '';
+                return '<li class="flex items-start"><span class="mt-1 h-2 w-2 rounded-full bg-amber-400"></span><span class="ml-2">' + text + assignee + '</span></li>';
+              }).join('') + '</ul>'
+            : '<div class="text-center py-8"><h3 class="mt-2 text-sm font-semibold text-gray-900">No action items</h3><p class="mt-1 text-sm text-gray-500">No action items found for this meeting.</p></div>';
+        }
       } else {
         results.classList.add('hidden');
       }

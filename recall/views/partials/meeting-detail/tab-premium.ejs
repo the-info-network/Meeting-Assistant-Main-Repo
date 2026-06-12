@@ -15,6 +15,8 @@
       <div class="px-4 py-5 sm:px-6">
         <% if (meeting.superAgentAnalysis && meeting.superAgentAnalysis.status === 'completed' && meeting.superAgentAnalysis.detailedSummary) { %>
           <p class="text-sm text-gray-700 whitespace-pre-wrap"><%= meeting.superAgentAnalysis.detailedSummary %></p>
+        <% } else if (meeting.summary) { %>
+          <p class="text-sm text-gray-700 whitespace-pre-wrap"><%= meeting.summary %></p>
         <% } else { %>
           <p class="text-sm text-gray-500">Run Super Agent to generate a premium summary.</p>
         <% } %>
