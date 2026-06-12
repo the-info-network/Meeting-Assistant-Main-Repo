@@ -270,6 +270,22 @@ export default async (job) => {
       assemblyTranscriptStatus: transcript.status || "queued",
     });
 
+    // Queue a fallback polling job in case the AssemblyAI webhook never fires.
+    // The complete processor polls AssemblyAI (up to 240 attempts) and will no-op
+    // if the transcript is still queued/processing. When the transcript is done,
+    // it proceeds with LLM analysis. The webhook is the fast path; this is the
+    // fallback that keeps the analysis from being stuck forever.
+    await backgroundQueue.add(
+      "meeting.super_agent.complete",
+      { analysisId, transcriptId: transcript.id },
+      {
+        jobId: `super-agent-complete-${analysisId}`,
+        removeOnComplete: true,
+        removeOnFail: false,
+        delay: 60000, // Start polling after 60s
+      }
+    );
+
     // #region agent log - H12f: Debug AssemblyAI submission success
     fetch('http://127.0.0.1:7248/ingest/9df62f0f-78c1-44fb-821f-c3c7b9f764cc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'meeting-super-agent-start.js:processor',message:'super_agent_assemblyai_submitted',data:{analysisId,transcriptId:transcript.id,status:'processing'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H12f'})}).catch(()=>{});
     // #endregion
