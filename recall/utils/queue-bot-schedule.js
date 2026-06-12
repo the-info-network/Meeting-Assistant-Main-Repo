@@ -43,8 +43,13 @@ export async function queueBotScheduleJob(recallEventId, calendarId = null, opti
     const existingJob = await backgroundQueue.getJob(jobId);
     if (existingJob) {
       const jobState = await existingJob.getState();
-      console.log(`[BOT-SCHEDULE] ⚠️  Duplicate job attempt prevented: eventId=${recallEventId} jobId=${jobId} existingState=${jobState}`);
-      return existingJob;
+      if (jobState === 'failed') {
+        await existingJob.remove();
+        console.log(`[BOT-SCHEDULE] Removed failed job ${jobId} to allow retry`);
+      } else {
+        console.log(`[BOT-SCHEDULE] ⚠️  Duplicate job attempt prevented: eventId=${recallEventId} jobId=${jobId} existingState=${jobState}`);
+        return existingJob;
+      }
     }
   } catch (err) {
     // Job doesn't exist, continue to add it
@@ -102,8 +107,13 @@ export async function queueBotDeleteJob(recallEventId) {
     const existingJob = await backgroundQueue.getJob(jobId);
     if (existingJob) {
       const jobState = await existingJob.getState();
-      console.log(`[BOT-DELETE] ⚠️  Duplicate job attempt prevented: eventId=${recallEventId} jobId=${jobId} existingState=${jobState}`);
-      return existingJob;
+      if (jobState === 'failed') {
+        await existingJob.remove();
+        console.log(`[BOT-DELETE] Removed failed job ${jobId} to allow retry`);
+      } else {
+        console.log(`[BOT-DELETE] ⚠️  Duplicate job attempt prevented: eventId=${recallEventId} jobId=${jobId} existingState=${jobState}`);
+        return existingJob;
+      }
     }
   } catch (err) {
     // Job doesn't exist, continue to add it
