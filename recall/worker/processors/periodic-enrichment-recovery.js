@@ -23,22 +23,37 @@ export default async (job) => {
           model: db.MeetingSummary,
           required: false,
         },
-        {
-          model: db.MeetingTranscriptChunk,
-          required: true,
-          attributes: ["id"],
-        },
       ],
       where: { status: "done" },
       order: [["createdAt", "DESC"]],
     });
 
-    const stuckArtifacts = artifacts.filter(
+    const withoutSummary = artifacts.filter(
       (a) => !a.MeetingSummaries || a.MeetingSummaries.length === 0
     );
 
+    if (withoutSummary.length === 0) {
+      console.log(`[ENRICH-RECOVERY] Nothing to recover`);
+      return;
+    }
+
+    // Check which ones have transcript chunks (avoids dual-hasMany include)
+    const artifactIds = withoutSummary.map((a) => a.id);
+    const withChunks = await db.MeetingTranscriptChunk.findAll({
+      attributes: ["meetingArtifactId"],
+      where: {
+        meetingArtifactId: { [db.Sequelize.Op.in]: artifactIds },
+      },
+      group: ["meetingArtifactId"],
+      raw: true,
+    });
+    const idsWithChunks = new Set(withChunks.map((c) => c.meetingArtifactId));
+    const stuckArtifacts = withoutSummary.filter((a) =>
+      idsWithChunks.has(a.id)
+    );
+
     console.log(
-      `[ENRICH-RECOVERY] Found ${artifacts.length} done artifact(s), ${stuckArtifacts.length} stuck without summary`
+      `[ENRICH-RECOVERY] Found ${artifacts.length} done artifact(s), ${withoutSummary.length} without summary, ${stuckArtifacts.length} stuck (have transcript)`
     );
 
     if (stuckArtifacts.length === 0) {
