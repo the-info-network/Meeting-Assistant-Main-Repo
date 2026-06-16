@@ -167,13 +167,15 @@ export default async (job) => {
 
       // Same company but no shared bot yet: only the meeting organizer should schedule,
       // so the bot that joins is the owner's (name/settings). Participants will attach when organizer's bot exists.
-      if (isSameCompany && !isOrganizer) {
+      // Only skip if we can CONFIRM the organizer is someone else. If organizerEmail is null/unknown,
+      // fall through and schedule (safe default: better to have a bot than miss a meeting).
+      if (isSameCompany && organizerEmail && !isOrganizer) {
         console.log(
-          `[SHARED-BOT] Skipping - not meeting organizer (only organizer schedules for company): eventId=${event.id} user=${userEmail} organizer=${organizerEmail || "unknown"}`
+          `[SHARED-BOT] Skipping - not meeting organizer (only organizer schedules for company): eventId=${event.id} user=${userEmail} organizer=${organizerEmail}`
         );
         await telemetryEvent(
           "BotScheduling.skipped_not_organizer",
-          { recallEventId: event.recallId, eventId: event.id, userEmail, organizerEmail: organizerEmail || null },
+          { recallEventId: event.recallId, eventId: event.id, userEmail, organizerEmail },
           { location: "worker/processors/calendar-event-update-bot-schedule.js:skip_not_organizer" }
         );
         return;
