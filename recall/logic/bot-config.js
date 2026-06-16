@@ -74,8 +74,11 @@ export function buildBotConfig({ calendar, event, publicUrl }) {
     // Map our "realtime/async" UI to Recall provider config.
     // For real-time visibility in the UI/logs, prefer low-latency when language is compatible.
     const wantsRealtime = effectiveTranscriptionMode === "realtime";
+    // Only use low-latency mode when language is explicitly English.
+    // Omitting language_code lets Recall use the account default, which may be non-English
+    // and would cause a 400 error with prioritize_low_latency.
     const providerMode =
-      wantsRealtime && (!languageCode || languageCode === "en")
+      wantsRealtime && languageCode === "en"
         ? "prioritize_low_latency"
         : "prioritize_accuracy";
 
